@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Face Login System</title>
+
+<!-- Face API -->
+<script defer src="https://unpkg.com/face-api.js"></script>
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  text-align: center;
+  background: #f2f2f2;
+  margin: 0;
+  padding: 10px;
+}
+
+h2 {
+  margin-bottom: 10px;
+}
+
+.container {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  margin: auto;
+}
+
+video {
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+  border: 2px solid #000;
+}
+
+input, button {
+  width: 90%;
+  max-width: 300px;
+  padding: 10px;
+  margin: 5px;
+}
+
+#status {
+  font-weight: bold;
+  margin-top: 10px;
+}
+</style>
+</head>
+
+<body>
+
+<h2>Face Recognition Login</h2>
+
+<div class="container">
+  <video
+    id="video"
+    autoplay
+    muted
+    playsinline
+  ></video>
+</div>
+
+<br>
+
+<input id="username" placeholder="Enter name">
+
+<br>
+
+<button onclick="registerFace()">Register Face</button>
+<button onclick="loginFace()">Login with Face</button>
+
+<p id="status">Waiting for camera…</p>
+
+<script>
+const video = document.getElementById("video");
+const statusText = document.getElementById("status");
+
+let labeledDescriptors = [];
+
+// LOAD MODELS
+Promise.all([
+  faceapi.nets.tinyFaceDetector.loadFromUri("https://cdn.jsdelivr.net/npm/face-api.js/models"),
+  faceapi.nets.faceLandmark68Net.loadFromUri("https://cdn.jsdelivr.net/npm/face-api.js/models"),
+  faceapi.nets.faceRecognitionNet.loadFromUri("https://cdn.jsdelivr.net/npm/face-api.js/models")
+]).then(startCamera).catch(err => {
+  statusText.innerText = "Model load error";
+  console.error(err);
+});
+
+// START CAMERA (FIXED)
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "user"
+      },
+      audio: false
+    });
+    video.srcObject = stream;
+    statusText.innerText = "Camera started ✅";
+  } catch (err) {
+    statusText.innerText = "Camera blocked ❌";
+    console.error(err);
+  }
+}
+
+// GET FACE DATA
+async function getFaceDescriptor() {
+  const detection = await faceapi
+    .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+    .withFaceLandmarks()
+    .withFaceDescriptor();
+
+  return detection ? detection.descriptor : null;
+}
+
+// REGISTER FACE
+async function registerFace() {
+  const name = document.getElementById("username").value.trim();
+  if (!name) {
+    alert("Enter name");
+    return;
+  }
+
+  const descriptor = await getFaceDescriptor();
+  if (!descriptor) {
+    alert("Face not detected");
+    return;
+  }
+
+  labeledDescriptors.push(
+    new faceapi.LabeledFaceDescriptors(name, [descriptor])
+  );
+
+  localStorage.setItem("faces", JSON.stringify(labeledDescriptors));
+  statusText.innerText = "Face registered for " + name;
+}
+
+// LOAD SAVED FACES
+function loadFaces() {
+  const data = localStorage.getItem("faces");
+  if (!data) return [];
+
+  const parsed = JSON.parse(data);
+  return parsed.map(fd =>
+    new faceapi.LabeledFaceDescriptors(
+      fd.label,
+      fd.descriptors.map(d => new Float32Array(d))
+    )
+  );
+}
+
+// LOGIN
+async function loginFace() {
+  const savedFaces = loadFaces();
+  if (savedFaces.length === 0) {
+    alert("No registered users");
+    return;
+  }
+
+  const faceMatcher = new faceapi.FaceMatcher(savedFaces, 0.6);
+  const descriptor = await getFaceDescriptor();
+
+  if (!descriptor) {
+    alert("Face not detected");
+    return;
+  }
+
+  const result = faceMatcher.findBestMatch(descriptor);
+
+  if (result.label === "unknown") {
+    statusText.innerText = "Login failed ❌";
+  } else {
+    statusText.innerText = "Welcome, " + result.label + " ✅";
+  }
+}
+</script>
+
+</body>
+</html>
